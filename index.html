@@ -223,59 +223,95 @@ function renderSalaryCard() {
       <div class="salary-sub">Månedslønn<br><strong>${formatKr(person.totalMonthlySalary)}</strong></div>
     </div>
     <div class="salary-grid">
-      <div class="metric"><div class="metric-label">Ordinært</div><div class="metric-value">${formatKr(info.ordinaryEarned)}</div></div>
-      <div class="metric"><div class="metric-label">Fast del</div><div class="metric-value">${formatKr(person.fixedMonthlySalary || 0)}</div></div>
-      <div class="metric"><div class="metric-label">Til gode</div><div class="metric-value">${formatKr(info.outstanding)}</div></div>
+      <div class="metric"><div class="metric-label">Denne måneden</div><div class="metric-value">${formatKr(info.earned)}</div></div>
+      <div class="metric"><div class="metric-label">Måned til gode</div><div class="metric-value">${formatKr(info.monthOutstanding)}</div></div>
+      <div class="metric"><div class="metric-label">Totalt til gode</div><div class="metric-value">${formatKr(info.outstanding)}</div></div>
     </div>
   `;
 }
 
 function getCurrentSalaryMonthInfo(person) {
-  const today = parseYmd(appData.today);
-  const targetYear = today.getFullYear();
-  const targetMonth = today.getMonth();
+  // Aktiv lønnsmåned bestemmes av mandagen i inneværende uke.
+  const currentWeek = appData.weeks.find(
+    w => w.year === appData.current.year && w.week === appData.current.week
+  );
 
+  const salaryMonthDate = currentWeek
+    ? parseYmd(currentWeek.monday)
+    : parseYmd(appData.today);
+
+  const targetYear = salaryMonthDate.getFullYear();
+  const targetMonth = salaryMonthDate.getMonth();
+  const weeklyOrdinary = Number(person.ordinaryMonthlySalary || 0) / 4;
+
+  // Hele uken tilhører måneden der mandagen ligger.
   const monthWeeks = appData.weeks.filter(week => {
-    const thursday = addDays(parseYmd(week.monday), 3);
-    return thursday.getFullYear() === targetYear && thursday.getMonth() === targetMonth;
+    const monday = parseYmd(week.monday);
+    return monday.getFullYear() === targetYear &&
+           monday.getMonth() === targetMonth;
   });
 
-  const weeklyOrdinary = Number(person.ordinaryMonthlySalary || 0) / 4;
   let ordinaryEarned = 0;
-
   monthWeeks.forEach(week => {
     const pw = week.persons.find(p => p.person === person.person);
     if (pw?.salaryComplete) ordinaryEarned += weeklyOrdinary;
   });
 
   const fixedEarned = Number(person.fixedMonthlySalary || 0);
-  const earned = ordinaryEarned + fixedEarned;
+  const monthEarned = ordinaryEarned + fixedEarned;
+
+  // Total opptjening siden historikkstart.
+  let totalOrdinaryEarned = 0;
+  const earnedMonths = new Set();
+  const currentMonday = currentWeek
+    ? parseYmd(currentWeek.monday)
+    : parseYmd(appData.today);
+
+  appData.weeks.forEach(week => {
+    const monday = parseYmd(week.monday);
+    if (monday > currentMonday) return;
+
+    const pw = week.persons.find(p => p.person === person.person);
+    if (pw?.salaryComplete) totalOrdinaryEarned += weeklyOrdinary;
+
+    const monthKey =
+      `${monday.getFullYear()}-${String(monday.getMonth()+1).padStart(2,'0')}`;
+    earnedMonths.add(monthKey);
+  });
+
+  const totalFixedEarned =
+    Number(person.fixedMonthlySalary || 0) * earnedMonths.size;
+  const totalEarned = totalOrdinaryEarned + totalFixedEarned;
+
+  const totalPaid = (appData.payments || [])
+    .filter(p => p.person === person.person)
+    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+  const monthPaid = (appData.payments || [])
+    .filter(payment => {
+      if (payment.person !== person.person) return false;
+      const raw = payment.periodFrom || payment.date;
+      if (!raw) return false;
+      const d = parseYmd(raw);
+      return d.getFullYear() === targetYear &&
+             d.getMonth() === targetMonth;
+    })
+    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
   const monthStart = new Date(targetYear, targetMonth, 1, 12);
   const monthEnd = new Date(targetYear, targetMonth + 1, 0, 12);
 
-  const paid = (appData.payments || [])
-    .filter(payment => {
-      if (payment.person !== person.person) return false;
-
-      if (payment.periodFrom) {
-        const d = parseYmd(payment.periodFrom);
-        return d.getFullYear() === targetYear && d.getMonth() === targetMonth;
-      }
-
-      if (!payment.date) return false;
-      const d = parseYmd(payment.date);
-      return d.getFullYear() === targetYear && d.getMonth() === targetMonth;
-    })
-    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
-
   return {
-    monthName: new Intl.DateTimeFormat('nb-NO', { month:'long' }).format(today),
+    monthName: new Intl.DateTimeFormat('nb-NO', { month:'long' })
+      .format(salaryMonthDate),
     ordinaryEarned,
     fixedEarned,
-    earned,
-    paid,
-    outstanding: Math.max(0, earned - paid),
+    earned: monthEarned,
+    paid: monthPaid,
+    monthOutstanding: Math.max(0, monthEarned - monthPaid),
+    outstanding: Math.max(0, totalEarned - totalPaid),
+    totalEarned,
+    totalPaid,
     periodFrom: toYmd(monthStart),
     periodTo: toYmd(monthEnd)
   };
@@ -487,9 +523,9 @@ function renderAdminOverview() {
       <div class="admin-card">
         <h3>${escapeHtml(person.person)}</h3>
         <div class="admin-grid">
-          <div class="admin-mini"><span>Opptjent</span><strong>${formatKr(info.earned)}</strong></div>
-          <div class="admin-mini"><span>Utbetalt</span><strong>${formatKr(info.paid)}</strong></div>
-          <div class="admin-mini"><span>Til gode</span><strong>${formatKr(info.outstanding)}</strong></div>
+          <div class="admin-mini"><span>Denne måneden</span><strong>${formatKr(info.earned)}</strong></div>
+          <div class="admin-mini"><span>Totalt utbetalt</span><strong>${formatKr(info.totalPaid)}</strong></div>
+          <div class="admin-mini"><span>Totalt til gode</span><strong>${formatKr(info.outstanding)}</strong></div>
         </div>
         <button class="pay-btn"
           data-pay-person="${escapeAttr(person.person)}"
