@@ -286,9 +286,9 @@ function getCurrentSalaryMonthInfo(person) {
     if (pw?.salaryComplete) ordinaryEarned += weeklyOrdinary;
   });
 
-  // Fast månedlig del regnes som opptjent når lønnsmåneden er avsluttet.
-  // Dermed starter en ny måned på 0 kr opptjent hittil.
-  const fixedEarned = 0;
+  // Fast månedlig del er opptjent fra starten av den aktive lønnsmåneden.
+  // Den er ikke avhengig av avkrysning av oppgaver.
+  const fixedEarned = Number(person.fixedMonthlySalary || 0);
   const monthEarned = ordinaryEarned + fixedEarned;
 
   // Historisk ordinær opptjening bruker korrekt ukesats for hver lønnsmåned.
@@ -309,7 +309,7 @@ function getCurrentSalaryMonthInfo(person) {
 
   // Fast del teller én gang for hver avsluttet lønnsmåned.
   const totalFixedEarned =
-    Number(person.fixedMonthlySalary || 0) * historicalMonthKeys.size;
+    Number(person.fixedMonthlySalary || 0) * (historicalMonthKeys.size + 1);
 
   const totalEarned = totalOrdinaryEarned + totalFixedEarned;
 
