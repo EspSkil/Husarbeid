@@ -227,11 +227,32 @@ function renderSalaryCard() {
       <div class="metric"><div class="metric-label">Fast del</div><div class="metric-value">${formatKr(info.fixedEarned)}</div></div>
       <div class="metric"><div class="metric-label">Totalt til gode</div><div class="metric-value">${formatKr(info.outstanding)}</div></div>
     </div>
+    <div style="margin-top:10px;font-size:12px;opacity:.78">
+      ${info.salaryWeekCount} lønnsuker denne måneden · ${formatKr(info.weeklyOrdinary)} per fullført uke
+    </div>
   `;
 }
 
+function getSalaryMonthKeyFromWeek(week) {
+  const monday = parseYmd(week.monday);
+  return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getSalaryWeeksForMonth(year, month) {
+  return appData.weeks.filter(week => {
+    const monday = parseYmd(week.monday);
+    return monday.getFullYear() === year && monday.getMonth() === month;
+  });
+}
+
+function getWeeklyOrdinaryAmount(person, week) {
+  const monday = parseYmd(week.monday);
+  const salaryWeeks = getSalaryWeeksForMonth(monday.getFullYear(), monday.getMonth());
+  return Number(person.ordinaryMonthlySalary || 0) / (salaryWeeks.length || 1);
+}
+
 function getCurrentSalaryMonthInfo(person) {
-  // Aktiv lønnsmåned bestemmes av mandagen i inneværende uke.
+  // Hele uken tilhører måneden der mandagen ligger.
   const currentWeek = appData.weeks.find(
     w => w.year === appData.current.year && w.week === appData.current.week
   );
@@ -242,14 +263,9 @@ function getCurrentSalaryMonthInfo(person) {
 
   const targetYear = salaryMonthDate.getFullYear();
   const targetMonth = salaryMonthDate.getMonth();
-  const weeklyOrdinary = Number(person.ordinaryMonthlySalary || 0) / 4;
-
-  // Hele uken tilhører måneden der mandagen ligger.
-  const monthWeeks = appData.weeks.filter(week => {
-    const monday = parseYmd(week.monday);
-    return monday.getFullYear() === targetYear &&
-           monday.getMonth() === targetMonth;
-  });
+  const monthWeeks = getSalaryWeeksForMonth(targetYear, targetMonth);
+  const weeklyOrdinary =
+    Number(person.ordinaryMonthlySalary || 0) / (monthWeeks.length || 1);
 
   let ordinaryEarned = 0;
   monthWeeks.forEach(week => {
@@ -260,9 +276,9 @@ function getCurrentSalaryMonthInfo(person) {
   const fixedEarned = Number(person.fixedMonthlySalary || 0);
   const monthEarned = ordinaryEarned + fixedEarned;
 
-  // Total opptjening siden historikkstart.
+  // Historisk total bruker riktig ukesats for måneden hver uke tilhører.
   let totalOrdinaryEarned = 0;
-  const earnedMonths = new Set();
+  const startedSalaryMonths = new Set();
   const currentMonday = currentWeek
     ? parseYmd(currentWeek.monday)
     : parseYmd(appData.today);
@@ -271,16 +287,16 @@ function getCurrentSalaryMonthInfo(person) {
     const monday = parseYmd(week.monday);
     if (monday > currentMonday) return;
 
-    const pw = week.persons.find(p => p.person === person.person);
-    if (pw?.salaryComplete) totalOrdinaryEarned += weeklyOrdinary;
+    startedSalaryMonths.add(getSalaryMonthKeyFromWeek(week));
 
-    const monthKey =
-      `${monday.getFullYear()}-${String(monday.getMonth()+1).padStart(2,'0')}`;
-    earnedMonths.add(monthKey);
+    const pw = week.persons.find(p => p.person === person.person);
+    if (pw?.salaryComplete) {
+      totalOrdinaryEarned += getWeeklyOrdinaryAmount(person, week);
+    }
   });
 
   const totalFixedEarned =
-    Number(person.fixedMonthlySalary || 0) * earnedMonths.size;
+    Number(person.fixedMonthlySalary || 0) * startedSalaryMonths.size;
   const totalEarned = totalOrdinaryEarned + totalFixedEarned;
 
   const totalPaid = (appData.payments || [])
@@ -293,8 +309,7 @@ function getCurrentSalaryMonthInfo(person) {
       const raw = payment.periodFrom || payment.date;
       if (!raw) return false;
       const d = parseYmd(raw);
-      return d.getFullYear() === targetYear &&
-             d.getMonth() === targetMonth;
+      return d.getFullYear() === targetYear && d.getMonth() === targetMonth;
     })
     .reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
@@ -302,8 +317,9 @@ function getCurrentSalaryMonthInfo(person) {
   const monthEnd = new Date(targetYear, targetMonth + 1, 0, 12);
 
   return {
-    monthName: new Intl.DateTimeFormat('nb-NO', { month:'long' })
-      .format(salaryMonthDate),
+    monthName: new Intl.DateTimeFormat('nb-NO', { month:'long' }).format(salaryMonthDate),
+    salaryWeekCount: monthWeeks.length,
+    weeklyOrdinary,
     ordinaryEarned,
     fixedEarned,
     earned: monthEarned,
@@ -368,7 +384,7 @@ function renderWeekCard(week) {
 
   const isPast = isPastWeek(week);
   const isFuture = isFutureWeek(week);
-  const weeklyValue = Number(pw.ordinaryMonthlySalary || 0) / 4;
+  const weeklyValue = getWeeklyOrdinaryAmount(pw, week);
 
   const tasksHtml = pw.tasks.map(task => {
     const meta = [];
