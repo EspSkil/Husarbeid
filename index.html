@@ -233,61 +233,73 @@ function renderSalaryCard() {
   `;
 }
 
+function getSalaryMonthDateFromWeek(week) {
+  // Lønnsmåneden bestemmes av måneden som har flest dager i uken.
+  // For en mandag–søndag-uke er dette alltid måneden torsdagen ligger i.
+  const thursday = parseYmd(week.monday);
+  thursday.setDate(thursday.getDate() + 3);
+  return thursday;
+}
+
 function getSalaryMonthKeyFromWeek(week) {
-  const monday = parseYmd(week.monday);
-  return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}`;
+  const d = getSalaryMonthDateFromWeek(week);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function getSalaryWeeksForMonth(year, month) {
   return appData.weeks.filter(week => {
-    const monday = parseYmd(week.monday);
-    return monday.getFullYear() === year && monday.getMonth() === month;
+    const d = getSalaryMonthDateFromWeek(week);
+    return d.getFullYear() === year && d.getMonth() === month;
   });
 }
 
 function getWeeklyOrdinaryAmount(person, week) {
-  const monday = parseYmd(week.monday);
-  const salaryWeeks = getSalaryWeeksForMonth(monday.getFullYear(), monday.getMonth());
+  const d = getSalaryMonthDateFromWeek(week);
+  const salaryWeeks = getSalaryWeeksForMonth(d.getFullYear(), d.getMonth());
   return Number(person.ordinaryMonthlySalary || 0) / (salaryWeeks.length || 1);
 }
 
 function getCurrentSalaryMonthInfo(person) {
-  // Hele uken tilhører måneden der mandagen ligger.
   const currentWeek = appData.weeks.find(
     w => w.year === appData.current.year && w.week === appData.current.week
   );
 
+  // Aktiv lønnsmåned følger flertallet av dagene i inneværende uke.
   const salaryMonthDate = currentWeek
-    ? parseYmd(currentWeek.monday)
+    ? getSalaryMonthDateFromWeek(currentWeek)
     : parseYmd(appData.today);
 
   const targetYear = salaryMonthDate.getFullYear();
   const targetMonth = salaryMonthDate.getMonth();
+  const currentMonthKey =
+    `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}`;
+
   const monthWeeks = getSalaryWeeksForMonth(targetYear, targetMonth);
   const weeklyOrdinary =
     Number(person.ordinaryMonthlySalary || 0) / (monthWeeks.length || 1);
 
   let ordinaryEarned = 0;
   monthWeeks.forEach(week => {
+    // Fremtidige uker kan ikke gi opptjening.
+    if (week.isFuture) return;
     const pw = week.persons.find(p => p.person === person.person);
     if (pw?.salaryComplete) ordinaryEarned += weeklyOrdinary;
   });
 
-  const fixedEarned = Number(person.fixedMonthlySalary || 0);
+  // Fast månedlig del regnes som opptjent når lønnsmåneden er avsluttet.
+  // Dermed starter en ny måned på 0 kr opptjent hittil.
+  const fixedEarned = 0;
   const monthEarned = ordinaryEarned + fixedEarned;
 
-  // Historisk total bruker riktig ukesats for måneden hver uke tilhører.
+  // Historisk ordinær opptjening bruker korrekt ukesats for hver lønnsmåned.
   let totalOrdinaryEarned = 0;
-  const startedSalaryMonths = new Set();
-  const currentMonday = currentWeek
-    ? parseYmd(currentWeek.monday)
-    : parseYmd(appData.today);
+  const historicalMonthKeys = new Set();
 
   appData.weeks.forEach(week => {
-    const monday = parseYmd(week.monday);
-    if (monday > currentMonday) return;
+    if (week.isFuture) return;
 
-    startedSalaryMonths.add(getSalaryMonthKeyFromWeek(week));
+    const monthKey = getSalaryMonthKeyFromWeek(week);
+    if (monthKey < currentMonthKey) historicalMonthKeys.add(monthKey);
 
     const pw = week.persons.find(p => p.person === person.person);
     if (pw?.salaryComplete) {
@@ -295,8 +307,10 @@ function getCurrentSalaryMonthInfo(person) {
     }
   });
 
+  // Fast del teller én gang for hver avsluttet lønnsmåned.
   const totalFixedEarned =
-    Number(person.fixedMonthlySalary || 0) * startedSalaryMonths.size;
+    Number(person.fixedMonthlySalary || 0) * historicalMonthKeys.size;
+
   const totalEarned = totalOrdinaryEarned + totalFixedEarned;
 
   const totalPaid = (appData.payments || [])
