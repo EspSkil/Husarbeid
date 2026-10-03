@@ -223,8 +223,8 @@ function renderSalaryCard() {
       <div class="salary-sub">Månedslønn<br><strong>${formatKr(person.totalMonthlySalary)}</strong></div>
     </div>
     <div class="salary-grid">
-      <div class="metric"><div class="metric-label">Denne måneden</div><div class="metric-value">${formatKr(info.earned)}</div></div>
-      <div class="metric"><div class="metric-label">Måned til gode</div><div class="metric-value">${formatKr(info.monthOutstanding)}</div></div>
+      <div class="metric"><div class="metric-label">Fra oppgaver</div><div class="metric-value">${formatKr(info.ordinaryEarned)}</div></div>
+      <div class="metric"><div class="metric-label">Fast del</div><div class="metric-value">${formatKr(info.fixedEarned)}</div></div>
       <div class="metric"><div class="metric-label">Totalt til gode</div><div class="metric-value">${formatKr(info.outstanding)}</div></div>
     </div>
   `;
